@@ -11,6 +11,8 @@ repositories {
 }
 
 dependencies {
+    implementation(libs.selenium.core)
+    implementation(libs.selenium.support)
     testImplementation(kotlin("test"))
 }
 

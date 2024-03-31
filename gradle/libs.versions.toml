@@ -1,0 +1,5 @@
+[versions]
+selenium = "4.17.0"
+[libraries]
+selenium-core = { group = "org.seleniumhq.selenium", name = "selenium-java", version.ref = "selenium" }
+selenium-support = { group = "org.seleniumhq.selenium", name = "selenium-support", version.ref = "selenium" }
