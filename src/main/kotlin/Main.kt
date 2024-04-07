@@ -4,6 +4,10 @@ import org.openqa.selenium.WebDriver
 import org.openqa.selenium.WebElement
 import org.openqa.selenium.chrome.ChromeDriver
 import org.openqa.selenium.chrome.ChromeOptions
+import java.io.FileOutputStream
+import java.nio.file.Path
+import java.nio.file.Paths
+import kotlin.io.path.Path
 
 class Selenium(private val driver: WebDriver) {
     fun String.getProfessorUrls(): List<ProfessorsUrl> {
@@ -24,14 +28,11 @@ class Selenium(private val driver: WebDriver) {
             }
     }
 
-    private fun getRincInc(str:String = ""): Int {
+    private fun getRincInc(str: String = ""): Int {
         return if (driver.findElement(By.tagName("body")).text.contains(str)) 1 else 0
     }
 
     private fun getPublicationFromElibrary(url: String): Pair<Int, Int> {
-        val rincCssSelector =
-            "body > table:nth-child(2) > tbody:nth-child(1) > tr:nth-child(1) > td:nth-child(1) > table:nth-child(1) > tbody:nth-child(1) > tr:nth-child(1) > td:nth-child(2) > table:nth-child(1) > tbody:nth-child(1) > tr:nth-child(4) > td:nth-child(1) > div:nth-child(4) > table:nth-child(14) > tbody:nth-child(1) > tr:nth-child(2) > td:nth-child(2) > table:nth-child(2) > tbody:nth-child(1) > tr:nth-child(1) > td:nth-child(1) > font:nth-child(2)"
-        val coreCssSelector = "#InCoreRisc"
         driver.get(url)
         return withRepeat {
             Pair(
@@ -44,29 +45,36 @@ class Selenium(private val driver: WebDriver) {
     private fun getInfoFromOmgtu(): ProfessorsInfo {
         val nameCssSelector =
             "#pagecontent > div.table-responsive"
-        val publicationCssSelector =
-            "div.table-responsive:nth-child(5) > table:nth-child(1) > tbody:nth-child(1) > tr:nth-child(1) > td:nth-child(1) > div:nth-child(7) > div:nth-child(1) > table:nth-child(1)"
+
         val info = ProfessorsInfo(
             name = driver.findElement(By.cssSelector(nameCssSelector)).findElement(By.tagName("div")).text,
             total = 0,
             rinc = 0,
             rincCore = 0
         )
-        return try {
-            driver.findElement(By.cssSelector(publicationCssSelector)).findElements(By.tagName("tr"))
-                .map { it.findElement(By.tagName("a")).getAttribute("href") }.fold(info) { curInfo, url ->
-                    val (rync, core) = if (url.contains("elibrary"))
-                        getPublicationFromElibrary(url)
-                    else Pair(0, 0)
-                    curInfo.copy(
-                        total = curInfo.total + 1,
-                        rinc = curInfo.rinc + rync,
-                        rincCore = curInfo.rincCore + core
-                    )
-                }
-        } catch (e: NoSuchElementException) {
-            info
-        }
+        val divs = driver.findElements(By.tagName("div"))
+        return driver.findElements(By.tagName("div"))
+            .indexOfFirst { it.text == "Научные публикации и достижения" }
+            .let { index -> if (index < 0) null else index }
+            ?.run {
+                let { index -> divs[index + 2] }
+                    .findElements(By.tagName("tr"))
+                    .map { it.findElements(By.tagName("a")).firstOrNull()?.getAttribute("href") ?: "" }
+                    .fold(info) { curInfo, url ->
+                        val (rync, core) = if (url.contains("elibrary")) {
+                            getPublicationFromElibrary(url)
+                        }
+                        else {
+                            Pair(0, 0)
+                        }
+                        curInfo.copy(
+                            total = curInfo.total + 1,
+                            rinc = curInfo.rinc + rync,
+                            rincCore = curInfo.rincCore + core
+                        )
+                    }
+            } ?: info
+
     }
 
     fun ProfessorsUrl.getProfessor(): ProfessorsInfo {
@@ -114,12 +122,11 @@ fun main(args: Array<String>) {
         "https://omgtu.ru/general_information/faculties/faculty_of_information_technology_and_computer_systems/department_of_computer_science_and_engineering/employees_kafed.php"
     val webDriver = createWebDriver(driverPath)
     val selenium = Selenium(webDriver)
-    val professorsInfo = with(selenium) {
+    with(selenium) {
         professorListUrl.getProfessorUrls().map {
             withRepeat { it.getProfessor() }
         }
-    }
-    println(professorsInfo)
+    }.toCsv().saveCsv()
 }
 
 fun <T> withRepeat(lambda: () -> T): T =
@@ -140,3 +147,14 @@ fun createWebDriver(chromeDriverPath: String): ChromeDriver {
     })
 }
 
+fun List<ProfessorsInfo>.toCsv(): String {
+    val list = this
+    return buildString {
+        appendLine("Имя,Общее кол-во публикаций,Публикаций в РИНЦ,Публикаций в ядре РИНЦ")
+        list.forEach { professor -> with(professor) { appendLine("$name,$total,$rinc,$rincCore") } }
+    }
+}
+
+fun String.saveCsv(path: Path = Paths.get("result.csv")) {
+    path.toFile().outputStream().use { it.write(toByteArray()) }
+}
